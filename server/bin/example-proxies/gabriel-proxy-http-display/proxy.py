@@ -18,7 +18,8 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 #
-
+import base64
+import struct
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 import json
 import multiprocessing
@@ -30,28 +31,74 @@ import re
 from SocketServer import ThreadingMixIn
 import sys
 import threading
+import argparse
+import logging
 import time
+import cv2
+import numpy as np
+import zmq
+
 
 dir_file = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(dir_file, "../../.."))
+
 import gabriel
 import gabriel.proxy
+
 LOG = gabriel.logging.getLogger(__name__)
 
 share_queue = Queue.Queue(gabriel.Const.MAX_FRAME_SIZE)
 
+ANDROID_CLIENT= True
+html_page = False
+
+port = "1234"
+context = zmq.Context()
+socket = context.socket(zmq.PAIR)
+socket.connect("tcp://localhost:%s" % port)
 
 class HttpProxy(gabriel.proxy.CognitiveProcessThread):
-    def handle(self, header, data):
+
+    def handle(self, header, data):  # data = image
         header['status'] = "success"
-        global share_queue
-        if share_queue.full():
-            try:
-                share_queue.get_nowait()
-            except Queue.Empty as e:
-                pass
-        share_queue.put(data)
-        return json.dumps({})
+
+        # data is a decoded image that i need to "pass" on to my actual server, this is basically a temporary server
+        # so send data to my actual server and let it be processed there before sending it back and allowing gabriel
+        # to do its thing
+        socket.send(data)
+        retdata = socket.recv()
+
+        if html_page:
+            global share_queue
+            if share_queue.full():
+                try:
+                    share_queue.get_nowait()
+                except Queue.Empty as e:
+                    pass
+            share_queue.put(retdata)
+
+        if ANDROID_CLIENT:
+            gabriel.Const.LEGACY_JSON_ONLY_RESULT = True
+            # old version return
+            # if gabriel.Const.LEGACY_JSON_ONLY_RESULT:
+            jpeg_str = base64.b64encode(retdata)
+            # np_data = np.fromstring(retdata, dtype=np.uint8)
+            # bgr_img = cv2.imdecode(np_data, cv2.IMREAD_COLOR)
+            # img_array = np.asarray(bytearray(retdata), dtype=np.int64)
+            # cv_image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            # jpeg_str_test = cv2.imencode('.jpg', retdata)[1].tostring()
+            msg = {
+                gabriel.Protocol_result.JSON_KEY_STATUS: 'success',
+                gabriel.Protocol_result.JSON_KEY_IMAGE: jpeg_str,
+                # gabriel.Protocol_result.JSON_KEY_IMAGES_ANIMATION: [],
+                # gabriel.Protocol_result.JSON_KEY_SPEECH: ""
+            }
+            return json.dumps(msg)
+            # new gabriel version return
+        else:
+            # python client can only handle image data
+            return json.dumps({})
+
 
 
 class MJPEGStreamHandler(BaseHTTPRequestHandler, object):
@@ -67,7 +114,7 @@ class MJPEGStreamHandler(BaseHTTPRequestHandler, object):
             if self.path.endswith(".html"):
                 f = open(os.curdir + os.sep + self.path)
                 self.send_response(200)
-                self.send_header('Content-type',	'text/html')
+                self.send_header('Content-type', 'text/html')
                 self.end_headers()
                 self.wfile.write(f.read())
                 f.close()
@@ -84,7 +131,7 @@ class MJPEGStreamHandler(BaseHTTPRequestHandler, object):
                     self.wfile.write("\r\n\r\n\r\n")
                     time.sleep(0.001)
             elif self.path.endswith(".jpeg"):
-                f = open(curdir + sep + self.path)
+                f = open(os.curdir + os.sep + self.path)
                 self.send_response(200)
                 self.send_header('Content-type', 'image/jpeg')
                 self.end_headers()
@@ -113,10 +160,11 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
 
 if __name__ == "__main__":
     settings = gabriel.util.process_command_line(sys.argv[1:])
+    print settings.address
 
     ip_addr, port = gabriel.network.get_registry_server_address(settings.address)
     service_list = gabriel.network.get_service_list(ip_addr, port)
-    LOG.info("Gabriel Server :")
+    LOG.info("Gabriel Server: ")
     LOG.info(pprint.pformat(service_list))
 
     video_ip = service_list.get(gabriel.ServiceMeta.VIDEO_TCP_STREAMING_IP)
@@ -139,7 +187,7 @@ if __name__ == "__main__":
     app_proxy.isDaemon = True
 
     # http server
-    http_server = ThreadedHTTPServer(('0.0.0.0', 7070), MJPEGStreamHandler)
+    http_server = ThreadedHTTPServer(('0.0.0.0', 17070), MJPEGStreamHandler)
     http_server_thread = threading.Thread(target = http_server.serve_forever)
     http_server_thread.daemon = True
     http_server_thread.start()
