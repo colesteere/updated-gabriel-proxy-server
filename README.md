@@ -89,6 +89,9 @@ works other Linux distributions as long as you can install required package.
 How to use
 --------------
 
+*********************************************************************************************************************************
+Following are instructions on how to run the basic Gabriel library. In order to get the updated proxy server running, additional instructions will follow below the starred (*****) section.
+
 1. Run the `control server` from the binary directory.
 
     ```
@@ -241,6 +244,29 @@ How to use
 	If all properly set, you should now be able to see the camera images from 
 	mobile devices by connecting to `http://gabriel_ip:7070/index.html`
 	using your browser.
+	
+	
+	
+*********************************************************************************************************************************
+Instructions on how to get the updated proxy server running:
+
+1. Navigate to the gabriel-proxy-http-display folder. It should look something like this: 
+
+```
+    ~/gabriel/server/bin/example-proxies/gabriel-proxy-http-display$
+```
+
+2. Start the proxy script by typing the following into the command prompt:
+
+```
+    $ ./proxy.py -s 128.2.209.119:8021
+```
+This will start the proxy on the client side, remember that the IP address and port that I used may not be the same IP address and port that you will need to use. In addition, in order to use this with the PT-Exercise-Helper, remember to start the PT-Exercise-Helper server first. Instructions on how to run the PT-Exercise-Helper can be found in my repository for PT-Exercise-Helper.
+
+3. After running the script, make sure to kill the script so that the port can be used again with another process.
+```
+    $ pkill -9 -f proxy.py
+```
 
 
 
